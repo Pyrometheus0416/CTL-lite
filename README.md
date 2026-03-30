@@ -2,45 +2,7 @@
 
 CTL-lite 是一个编译速度快、类型安全、仅头文件的类模板库，适用于 ISO C99/C11。
 
-## 目标
-
-CTL 旨在通过在 ISO C99/C11 中实现以下 STL 容器来提高开发者的生产力：
-
-```
-deq.h = std::deque，使用分页的 realloc 实现
-heap.h = std::priority_queue，大根堆
-str.h = std::string，基于 vec.h 实现
-ust.h = std::unordered_set，哈希前向链表
-vec.h = std::vector，使用 realloc 实现
-```
-
-## 使用方法
-
-使用内置类型或 typedef 类型 `T` 配置 CTL 容器。
-
-```C
-#include <stdio.h>
-
-#define P
-#define T int // 必须在导入ctl的库之前定义模板
-#include <vec.h>
-
-int compare(int* a, int* b) { return (*a>*b)-(*a<*b); } // sign(a-b)
-
-int main(void)
-{
-    vec_int a = vec_int_init(compare);
-    vec_int_push(&a, 9);
-    vec_int_push(&a, 1);
-    vec_int_push(&a, 8);
-    vec_int_push(&a, 3);
-    vec_int_push(&a, 4);
-    vec_int_sort(&a, compare);
-    foreach(vec_int, &a, it)
-        printf("%d\n", *it.ref);
-    vec_int_free(&a);
-}
-```
+# TODO
 
 所有的 pop 都必须传入一个接收数据的非空指针。此设计旨在让使用者重视内存的管理，不要只是弹出而不接受。  
 谁申请谁释放！  
