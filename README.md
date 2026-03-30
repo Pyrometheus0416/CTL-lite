@@ -1,0 +1,121 @@
+# C 轻量模板库 (CTL-lite)
+
+CTL-lite 是一个编译速度快、类型安全、仅头文件的类模板库，适用于 ISO C99/C11。
+
+## 目标
+
+CTL 旨在通过在 ISO C99/C11 中实现以下 STL 容器来提高开发者的生产力：
+
+```
+deq.h = std::deque，使用分页的 realloc 实现
+heap.h = std::priority_queue，大根堆
+str.h = std::string，基于 vec.h 实现
+ust.h = std::unordered_set，哈希前向链表
+vec.h = std::vector，使用 realloc 实现
+```
+
+## 使用方法
+
+使用内置类型或 typedef 类型 `T` 配置 CTL 容器。
+
+```C
+#include <stdio.h>
+
+#define P
+#define T int // 必须在导入ctl的库之前定义模板
+#include <vec.h>
+
+int compare(int* a, int* b) { return (*a>*b)-(*a<*b); } // sign(a-b)
+
+int main(void)
+{
+    vec_int a = vec_int_init(compare);
+    vec_int_push(&a, 9);
+    vec_int_push(&a, 1);
+    vec_int_push(&a, 8);
+    vec_int_push(&a, 3);
+    vec_int_push(&a, 4);
+    vec_int_sort(&a, compare);
+    foreach(vec_int, &a, it)
+        printf("%d\n", *it.ref);
+    vec_int_free(&a);
+}
+```
+
+所有的 pop 都必须传入一个接收数据的非空指针。此设计旨在让使用者重视内存的管理，不要只是弹出而不接受。  
+谁申请谁释放！  
+dep 持有的是 T 类型的数据（记作 D ）的副本，使用 T_free 只会释放 D 持有的指针成员对应的内存。  
+因此，必须将堆变量 封装进 栈变量 D 中，才能实现安全的内存控制。
+
+## 内存所有权
+
+定义 `P` 表示类型 `T` 是简单的旧式数据（Plain Old Data, POD）。无需显式复制。  
+具有内存所有权的类型需要省略定义 `P`。  
+并且在包含容器头文件之前，必须声明相当于 C++ 析构函数和拷贝构造函数的函数。
+
+建议使用栈内存创建数据，并在数据压入容器后，仅通过容器访问或修改数据。  
+对应的析构函数 T_free 应负责将数据中的指针成员所指向的内存释放。
+
+```C
+typedef struct { ... } type;
+void type_free(type*); // 声明析构函数
+type type_copy(type*); // 声明拷贝函数
+#define T type
+#include <vec.h>
+```
+
+## 头文件基本结构
+
+```c
+// Container Name
+
+//===================================================================
+#include xxx.h
+#define xxx
+//===================================================================
+#ifdef xxx_H
+...
+#endif
+//===================================================================
+全局函数声明
+//===================================================================
+结构体声明
+结构体相关方法函数声明
+//===================================================================
+内存操作方法函数
+//===================================================================
+视图方法函数
+//===================================================================
+修改方法函数
+//===================================================================
+高阶函数
+//===================================================================
+#undef xxx
+```
+
+## 实现细节
+
+双端队列：基于分页的动态内存分配
+
+```
+            prologue                         epilogue
+└──────────┴───═══════╧══════════╧══════════╧═════─────┴──────────┘
+               ↑a ------- [a, b) is used -------- ↑b    ↑b(maybe)
+```
+
+```h
+typedef struct A{
+    void (*elem_free)(T *);
+    T (*elem_copy)(T *);
+    B **pages; // pages[i] --> page; *page --> B; B[i] --> T
+
+    size_t prologue; // Page offset  of first used page
+    size_t epilogue; // Page offset of last used page
+    size_t a; // Offset of head element in prologue page
+    size_t b; // Offset past tail element in epilogue page (maybe)
+
+
+
+    size_t capacity; // Size of all pages
+    size_t size; // Number of All elements
+} A;```
