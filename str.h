@@ -1,9 +1,7 @@
 /* String */ 
 
 #include <string.h>
-
 #include "ctl.h"
-
 #pragma once
 //-------------------------------------------------------------------
 
@@ -17,7 +15,10 @@ typedef struct str{
     // assert: c_str[len] == '\0';
 }str;
 
-static inline void str_concat(str* self, const char* s);
+// [l,r)
+typedef struct slice{
+    size_t l,r;
+}slice;
 
 //-------------------------------------------------------------------
 
@@ -35,22 +36,22 @@ static inline void
 str_free(str* self){
     memset(self->c_str, '\0', self->capacity);
     free(self->c_str);
-    self->len = 0;
-    self->capacity = 15;
-    self->c_str = (char*)malloc(self->capacity);
+    self->capacity = self->len = 0;
 }
 
 static inline str
 str_copy(str* s){
-    str other = str_init("");
-    str_concat(&other, s->c_str);
+    str other = str_init(s->c_str);
     return other;
 }
 
 //-------------------------------------------------------------------
 
 static inline char*
-str_at(str* self, size_t index){ return self->c_str + index; }
+str_at(str* self, size_t index){
+    index = MIN_CTL(index, self->len-1);
+    return self->c_str + index;
+}
 
 static inline char*
 str_head(str* self){ return self->c_str; }
@@ -83,105 +84,70 @@ str_fit(str* self){ str_reserve(self, self->len + 1); }
 
 //----- modify operations -------------------------------------------
 
-static inline void
-str_erase(str* self, size_t index, size_t len){
-    char* p = str_at(self, index);
-    const size_t move_cnt = self->len - index;
-    for(int i = 0; i<move_cnt; i++)
-        p[i] = p[i+len];
-    self->len -= len;
-    self->c_str[self->len] = '\0';
+
+static inline void str_set(str* self, slice lr, const char ch){
+    if( lr.l >= lr.r) return;
+    memset(self->c_str+lr.l, ch, lr.r-lr.l); 
 }
 
-static inline void
-str_fill(str* self, size_t index, size_t len){
-    str_reserve(self, self->capacity + len);
-    char* p = str_at(self, index);
-    const size_t move_cnt = self->len - index;
-    for(int i=move_cnt; i>0; --i){
-        p[i-1+len] = p[i-1];
-    }
-    self->len += len;
-    self->c_str[self->len] = '\0';
-} // fill some useless char to c_str[index]
+static inline short str_cmp(str* self, str* other){ strcmp(self->c_str, other->c_str); }
+static inline void str_upper(str* self){ strupr(self->c_str); }
+static inline void str_lower(str* self){ strlwr(self->c_str); }
 
-static inline void
-str_insert(str* self, size_t index, const char* s){
-    size_t len = strlen(s);
-    char* p = str_at(self, index);
-    str_fill(self, index, len);
-    for(int i=0; i<len; ++i){
-        p[i] = s[i];
-    } // src string copy to head
-    self->len += len;
-    self->capacity += len;
-    self->c_str[self->len] = '\0';
+static inline void str_cat(str* self, str* other){
+    size_t new_len = self->len + other->len;
+    if( new_len >= self->capacity ) str_reserve(self, new_len+1);
+    strcat(self->c_str, other->c_str);
+    self->len = new_len;
 }
 
-static inline void
-str_concat(str* self, const char* s){
-    size_t len = strlen(s);
-    str_reserve(self, self->capacity + len);
-    strcat( self->c_str, s);
-    self->len += len;
-    self->capacity += len;
-}
-
-static inline void
-str_clear(str* self){
-    strset(self->c_str, '\0');
-    self->len = 0;
-}
-
-static inline void
-str_push(str* self, const char c){
-    str_reserve(self, self->capacity+1);
-    *(str_tail(self)+1) = c;
-    self->len++;
-    *(str_tail(self)+1) = '\0';
-}
-
-static inline void
-str_pop(str* self, char* c){
-    *c = *(str_tail(self));
-    *str_tail(self) = '\0';
-    self->len--;
-}
-
-static inline void
-str_reverse(str* self, size_t index, size_t len){
-    char* start = self->c_str+index;
-    for(size_t i = 0; 2*i<len; i++){
-        char* lp = start+i;
-        char* rp = start+len-i;
+static inline void str_reverse(str* self, slice lr){
+    char* lp = self->c_str + lr.l;
+    char* rp = self->c_str + lr.r-1;
+    while( lp < rp){
         SWAP(char, lp, rp);
+        lp++; rp--;
     }
+}
+
+static inline void str_stride(str* self){
+    if(self->len==0) return;
+    size_t lp = 0, rp = self->len-1;
+    char ch;
+    while(lp<=rp){
+        ch = self->c_str[lp];
+        if( 32 < ch && ch < 127) break;
+        lp++;
+    }
+    while(lp<=rp){
+        ch = self->c_str[rp];
+        if( 32 < ch && ch < 127) break;
+        rp--;
+    }
+    for(size_t i=lp; i<=rp; i++){
+        self->c_str[i-lp] = self->c_str[i];
+    }
+    self->len = rp-lp+1;   
+    self->c_str[self->len] = '\0';
+}
+
+static inline void
+str_replace(str* self, slice lr, const char* s){
+    char tmp[strlen(s)+1];
+    strcpy(tmp, s);
+    lr.r = MIN_CTL(lr.r, self->len);
+    size_t erase_len = (lr.r>lr.l)? lr.r-lr.l: 0;
+    size_t reserve_len = self->len-erase_len;
+    size_t final_len = reserve_len + strlen(s);
+    strrev(self->c_str + lr.l); strrev(tmp); // move erase char back
+    if( final_len >= self->capacity ) str_reserve(self, final_len+1);
+    strcpy(self->c_str + reserve_len, tmp);  // cover erase char
+    strrev(self->c_str + lr.l); strrev(tmp); // resume order
+    self->len = final_len;
+    self->c_str[self->len] = '\0';
 }
 
 //----- hign level function -----------------------------------------
-
-static inline void
-str_replace(str* self, size_t index, size_t len, const char* s){
-    size_t end = index + len, s_len = strlen(s);
-    if( s_len < len){ // self->len decrease
-        str_erase(self, index, len-s_len);
-    }else if( s_len > len){
-        str_fill(self, index, s_len-len);
-    }
-    char* p = str_at(self, index);
-    strncpy(p, s, s_len);
-}
-
-static inline str
-str_substr(str* self, size_t index, size_t len){
-    str substr = str_init("");
-    str_reserve(&substr, len+1);
-    char* p = str_at(self, index);
-    strncpy(substr.c_str, p, len);
-    substr.len = len;
-    substr.c_str[len] = '\0';
-    return substr;
-}
 
 static inline void
 kmp_next(str* pat, size_t* next){
@@ -212,7 +178,7 @@ kmp_next(str* pat, size_t* next){
     } // nextval array
 }
 
-static inline int
+static inline slice
 str_kmp(str* txt, str* pat, size_t* next){
     size_t N = txt->len, M = pat->len;
 
@@ -226,7 +192,7 @@ str_kmp(str* txt, str* pat, size_t* next){
         }
 
         if(j==M) // BingGo!!! successfully match!
-            return i + 1 - j;
+            return (slice){i+1-j ,i+1};
     }
-    return -1;
+    return (slice){0, 0};
 }

@@ -7,12 +7,6 @@
 #include <stdbool.h>
 #include <time.h>
 
-#define FreeWarning fprintf(stderr,\
-    "\033[32m"\
-    "Warning: Pop all elements in container before free container! "\
-    "Otherwhile, there is nothing will happend. \n"\
-    "\033[0m");
-
 #define CAT(a, b) a##_##b
 #define CAT3(a, b, c) a##_##b##_##c
 #define JOIN(prefix, name) CAT(prefix, name)
@@ -29,7 +23,7 @@
  * 
  ---
  * ```c
- * foreach(vec_int, &v, iter){
+ * foreach(array_int, &v, iter){
  *      printf("%d\n", *iter.ref);
  * }
  * ```
@@ -39,57 +33,27 @@
 #define len(a) (sizeof(a) / sizeof(*(a))) // Carculate length of array
 
 //-------------------------------------------------------------------
-
-static inline size_t MAX_CTL(size_t a, size_t b) { return a>b ? a: b; }
-static inline size_t MIN_CTL(size_t a, size_t b) { return a<b ? a: b; }
-
+static inline long MAX_CTL(long a, long b) { return a>b ? a: b; }
+static inline long MIN_CTL(long a, long b) { return a<b ? a: b; }
 //-------------------------------------------------------------------
 
-void ARRAY(int col, int arr[], size_t col_width){
-    if(col==0){ puts("The Array is Empty!"); return; }
-    char *table[3][3] = {
-        "┌", "┬", "┐\n", // Head Row
-        "│", "│", "│\n", // Number Row
-        "└", "┴", "┘\n", // Tail Row
-    };
-    for(int i=0,q=0; i<3; ++i){
-        for(int j=0; j<2*col+1; ++j){
-            q = (j!=0) + 2*(j&1) + (j==2*col);
-            if(q==3){ // Number Column
-                if(i==1)
-                    printf("%-*d", col_width, arr[j/2]);
-                    // Use '*' as a placeholder of col_width
-                else for(int k=0; k<col_width; ++k)
-                    printf("─");
-            }else printf(table[i][q]);
-        }
-    }
-    // system("pause");
-}
-
-void TABLE(int row, int col, int arr[row][col], size_t col_width){    
-    char *table[4][4]={
-        "┌","┬","┐\n","─", // Head Row
-        "├","┼","┤\n","─", // Middle separate Row
-        "└","┴","┘\n","─", // Tail Row
-        "│","│","│\n",""   // Number Row
-    };
-
-    for(int i=0,p=0,q=0; i<2*row+1; ++i){
-        p = (i!=0) + 2*(i&1) + (i==2*row);
-        for(int j=0; j<2*col+1; ++j){
-            q = (j!=0) + 2*(j&1) + (j==2*col);
-            if(q==3){ // Number Column
-                if(p==3) // Number Row
-                    printf("%-*d", col_width, arr[i/2][j/2]);
-                    // Use '*' as a placeholder of col_width
-                else for(int k=0; k<col_width; ++k)
-                    printf(table[p][3]);
-            }else printf(table[p][q]);
-        }
-    }
-}
-
+/**
+ * @brief Measure and print execution time of a function
+ * @param f Function to time (returns void*, takes void*)
+ * @param fmt Printf format string (default: colored "Program Run %5.3lf sec." if NULL)
+ * @param number Multiplier for measured time (use for averaging multiple iterations)
+ * @return Return value from f()
+ * 
+ * @note Uses `clock()` from <time.h> - measures CPU time, not wall-clock.
+ * @note If `fmt == NULL`, defaults to: "\033[32m Program Run %5.3lf sec. \033[0m\n".
+ * @note `number` scales the measured time: `(end-start) * number / CLOCKS_PER_SEC`.
+ * 
+ * Common Examples:
+ * ```c
+ * TIMEIT(my_func, NULL, 1);              // Default colored output
+ * TIMEIT(my_func, "%.3f ms\n", 100);     // Average of 100 runs
+ * ```
+ */
 void* TIMEIT(void* (*f)(void), char* fmt, size_t number){
     clock_t start_time=0, end_time=0;
     double unit = CLOCKS_PER_SEC;
@@ -106,5 +70,4 @@ void* TIMEIT(void* (*f)(void), char* fmt, size_t number){
 }
 
 //-------------------------------------------------------------------
-
 #endif

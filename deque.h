@@ -11,7 +11,7 @@
 #define Z JOIN(A, it)   // Container Iterator
 
 #ifndef DEQ_PAGE_SIZE
-#define DEQ_PAGE_SIZE (4)
+#define DEQ_PAGE_SIZE (4U)
 #endif
 
 //-------------------------------------------------------------------
@@ -27,12 +27,15 @@ typedef T B[DEQ_PAGE_SIZE];
 
 typedef struct A{
     B **pages; // pages[i] ⇒ page; *page ⇒ B; B[i] ⇒ T
-    T (*elem_copy)(T *); 
+    T (*elem_copy)(T*);
+    T (*elem_free)(T*);
 
     size_t prologue; // Index of first used Page
     size_t epilogue; // Index of last used Page
     size_t a; // Index of head element in prologue page
     size_t b; // Index past tail element in epilogue page (maybe)
+
+    T* (*at)(struct A* self, size_t index);
 
     size_t capacity; // Number of all pages
     size_t size; // Number of All elements
@@ -93,7 +96,7 @@ static inline void
 JOIN(Z, step)(Z *self){
     self->index = self->index_next;
     if (self->index >= self->container->size)
-        self->done = 1;
+        self->done = true;
     else{
         self->ref = JOIN(A, at)(self->container, self->index);
         self->index_next++;
@@ -134,13 +137,13 @@ JOIN(A, reserve)(A* self, const size_t capacity, int shift){
 
     int abs = (int)center_all - (int)center_used + shift;
     if( abs > 0){
-        abs = MIN_CTL(abs, bound);
+        abs = MIN_CTL(abs, bound); // abs* <= bound
         for(size_t i = self->epilogue; i>=self->prologue; i--){
             self->pages[i+abs] = self->pages[i];
             if(i == 0) break;
         }
     }else{
-        abs = MAX_CTL(abs, -bound);
+        abs = MAX_CTL(abs, -bound); // abs* >= -bound
         for(size_t i = self->prologue; i<=self->epilogue; i++){
             self->pages[i+abs] = self->pages[i];
         }
@@ -166,15 +169,17 @@ JOIN(A, push)(A *self, T value){
         self->pages[self->prologue] = JOIN(B, init)(DEQ_PAGE_SIZE);
     }
     self->a = (self->a + DEQ_PAGE_SIZE - 1)%DEQ_PAGE_SIZE;
-    (*JOIN(A, first)(self))[self->a] = value;
+    (*JOIN(A, first)(self))[self->a] = self->elem_copy(&value);
     self->size++;
 }
 
 static inline void
 JOIN(A, pop)(A *self, T* cache){
-    if( !cache || self->size == 0 ) return;
-    *cache = *JOIN(A, head)(self);
-    if( self->a == DEQ_PAGE_SIZE-1 ){
+    if( self->size == 0 ) return;
+    if( cache ) *cache = self->elem_copy(JOIN(A, head)(self));
+    if( self->elem_free ) self->elem_free(JOIN(A, head)(self));
+
+    if( self->a == DEQ_PAGE_SIZE-1 ) {
         free(JOIN(A, first)(self));
         self->prologue++;
     }
@@ -192,20 +197,27 @@ JOIN(A, pushr)(A *self, T value){
         self->pages[self->epilogue] = JOIN(B, init)(DEQ_PAGE_SIZE);
     }
     self->b = (self->b + 1)%DEQ_PAGE_SIZE;
-    (*JOIN(A, last)(self))[b_] = value;
+    (*JOIN(A, last)(self))[b_] = self->elem_copy(&value);
     self->size++;
 }
 
 static inline void
 JOIN(A, popr)(A *self, T* cache){
-    if( !cache || self->size == 0 ) return;
-    *cache = *JOIN(A, tail)(self);
-    if( self->b == 1){
+    if( self->size == 0 ) return;
+    if( cache ) *cache = self->elem_copy(JOIN(A, tail)(self));
+    if( self->elem_free ) self->elem_free(JOIN(A, tail)(self));
+
+    if( self->b == 0){
         free(JOIN(A, last)(self));
         self->epilogue--;
     }
     self->b = (self->b + DEQ_PAGE_SIZE -1)%DEQ_PAGE_SIZE;
     self->size--;
+}
+
+static inline void
+JOIN(A, extend)(A* self, size_t n, T arr[n]){
+    for(int i=0; i<n; i++){ JOIN(A, pushr)(self, arr[i]);}
 }
 
 //----- init method -------------------------------------------------
@@ -218,14 +230,20 @@ JOIN(B, init)(size_t cut){
 
 static inline A
 JOIN(A, init)(){
-    A self = (A){NULL, NULL, 1, 0, 0, 0, .capacity=2, .size=0};
+    A self = (A){
+        NULL, NULL, NULL,
+        1, 0, 0, 0,
+        .at=JOIN(A, at), .capacity=2, .size=0
+    };
     self.pages = (B**)calloc(self.capacity, sizeof(B*));
 
 #ifdef EXPLICIT
 #undef EXPLICIT
     self.elem_copy = JOIN(T, copy);
+    self.elem_free = JOIN(T, free);
 #else
     self.elem_copy = JOIN(A, implicit_copy);
+    self.elem_free = NULL;
 #endif
 
     return self;
@@ -233,10 +251,17 @@ JOIN(A, init)(){
 
 static inline void
 JOIN(A, free)(A *self){
-    if( self->size == 0 )
-        free(self->pages);
-    else
-        FreeWarning;
+    if(self->elem_free != NULL)
+        foreach(A, self, iter){
+            self->elem_free(iter.ref);
+    }
+    for(int i = self->prologue; i<=self->epilogue; i++){
+        free(self->pages[i]); // free all pages
+        self->pages[i] = NULL;
+    }
+    free(self->pages); // free the contents of pages
+    self->pages = NULL;
+    self->capacity = self->size = 0;
 }
 
 static inline A
@@ -251,7 +276,6 @@ JOIN(A, copy)(A *self){
 
 //-------------------------------------------------------------------
 
-#undef T
 #undef A
 #undef B
 #undef Z

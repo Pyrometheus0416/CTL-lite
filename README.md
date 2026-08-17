@@ -1,59 +1,91 @@
 # C 轻量模板库 (CTL-lite)
 
 CTL-lite 是一个编译速度快、类型安全、仅头文件的类模板库，适用于 ISO C99/C11。
-!!! 本项目尚待完善
 
-// TODO
+## 目标
 
-所有的 pop 都必须传入一个接收数据的非空指针。此设计旨在让使用者重视内存的管理，不要只是弹出而不接受。  
-谁申请谁释放！  
-dep 持有的是 T 类型的数据（记作 D ）的副本，使用 T_free 只会释放 D 持有的指针成员对应的内存。  
-因此，必须将堆变量 封装进 栈变量 D 中，才能实现安全的内存控制。
+CTL 旨在通过在 ISO C99/C11 中实现以下 STL 容器来提高开发者的生产力：
+
+```
+deq.h = std::deque，使用分页的 realloc 实现
+heap.h = std::priority_queue，大根堆
+str.h = std::string，基于 array.h 实现
+set.h = std::unordered_set，哈希前向链表
+array.h = std::vector，使用 realloc 实现
+```
+
+## 使用方法
+
+使用 `#define` 定义一个 `T` 为内置类型或 typedef 类型 `T`。  
+同时，可以为这些类型指定“特性”，来为 `T` 添加特殊功能。  
+
+如果需要对同一个类型声明不同的 ORDERED 或 HASH，应当使用 `typedef` 处理为不同名称的类型。
+
+```C
+#include <stdio.h>
+
+#define T int
+#define ORDERED 0
+#define HASH 0
+#include "ctl-lite/typing.h" // init type method of T
+
+#include "ctl-lite/array.h"
+#include "ctl-lite/deque.h"
+#undef T
+#undef ORDERED
+#undef HASH
+
+int main(void)
+{
+    array_int a = array_int_init(compare);
+    array_int_push(&a, 9);
+    array_int_push(&a, 1);
+    array_int_push(&a, 8);
+    array_int_push(&a, 3);
+    array_int_push(&a, 4);
+    array_int_sort(&a, compare);
+    foreach(vec_int, &a, it)
+        printf("%d\n", *it.ref);
+    vec_int_free(&a);
+}
+```
+
+## 数据特性
+
+目前支持的特性有 ORDERED、HASH、FMT。它们作用于数据类型 T 上，不会自动 undef，
+- 如果不定义，表明不对数据 T 添加对应特性
+- 如果定义为0，表明数据是的内置类型，并且使用 typing.h 中预定义的方法自动添加对应的函数
+- 如果定义为1，表明需要使用者**自行添加**对应特性的实现函数
+- 其它整数与1相同，但未来可由开发者自行扩展。
+
+在添加特性实现函数后，往往会根据特性生成一些实用的工具函数。
+
+|  特性   | 实现函数  |     说明     |    工具函数     |
+| :-----: | :-------: | :----------: | :-------------: |
+| ORDERED | T_compare |    良序性    |   MAX_T,MIN_T   |
+|  HASH   |  T_hash   |   可哈希性   |     T_equal     |
+|   FMT   |  T_print  | 可格式化打印 | ARRAY_T,TABLE_T |
+
+实现函数的签名：
+- `short JOIN(T, compare)(T* a, T* b)};`
+- `uint64_t JOIN(T, hash)(T* a);`
+- `void JOIN(T, print)(T a, size_t col_width);`，
+  - 在 printf 的格式控制字符中，可以使用 `*` 作为列宽的占位符：`%-*d`。
 
 ## 内存所有权
 
-定义 `P` 表示类型 `T` 是简单的旧式数据（Plain Old Data, POD）。无需显式复制。  
-具有内存所有权的类型需要省略定义 `P`。  
+定义 `EXPLICIT` 表示类型 `T` 需显式复制和释放，  
 并且在包含容器头文件之前，必须声明相当于 C++ 析构函数和拷贝构造函数的函数。
 
-建议使用栈内存创建数据，并在数据压入容器后，仅通过容器访问或修改数据。  
-对应的析构函数 T_free 应负责将数据中的指针成员所指向的内存释放。
+拷贝构造函数推荐实现深拷贝。如果实现的是浅拷贝，使用者需自行规划存入的行为。  
+例如：总是存入深拷贝的结果或者总是在取出时使用指针接收。
 
 ```C
 typedef struct { ... } type;
 void type_free(type*); // 声明析构函数
 type type_copy(type*); // 声明拷贝函数
 #define T type
-#include <vec.h>
-```
-
-## 头文件基本结构
-
-```c
-// Container Name
-
-//===================================================================
-#include xxx.h
-#define xxx
-//===================================================================
-#ifdef xxx_H
-...
-#endif
-//===================================================================
-全局函数声明
-//===================================================================
-结构体声明
-结构体相关方法函数声明
-//===================================================================
-内存操作方法函数
-//===================================================================
-视图方法函数
-//===================================================================
-修改方法函数
-//===================================================================
-高阶函数
-//===================================================================
-#undef xxx
+#include <array.h>
 ```
 
 ## 实现细节
@@ -63,7 +95,7 @@ type type_copy(type*); // 声明拷贝函数
 ```
             prologue                         epilogue
 └──────────┴───═══════╧══════════╧══════════╧═════─────┴──────────┘
-               ↑a ------- [a, b) is used -------- ↑b    ↑b(maybe)
+               ↑a ------- [a, b) is used --------↑b   ↑b(maybe)
 ```
 
 ```h
@@ -77,8 +109,7 @@ typedef struct A{
     size_t a; // Offset of head element in prologue page
     size_t b; // Offset past tail element in epilogue page (maybe)
 
-
-
     size_t capacity; // Size of all pages
     size_t size; // Number of All elements
-} A;```
+} A;
+```
