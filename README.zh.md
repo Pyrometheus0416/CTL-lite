@@ -1,6 +1,6 @@
 # C 轻量模板库 (CTL-lite)
 
-[English](README.en.md)
+[English](README.md)
 
 CTL-lite 是一个编译速度快、类型安全、仅头文件的类模板库，适用于 ISO C99/C11。
 
