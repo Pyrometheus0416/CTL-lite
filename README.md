@@ -1,6 +1,6 @@
 # C Lightweight Template Library (CTL-lite)
 
-[中文](README.md)
+[中文](README.zh.md)
 
 CTL-lite is a header-only, type-safe STL-like library for ISO C99/C11 that compiles fast.
 
